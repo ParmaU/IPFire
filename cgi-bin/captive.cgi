@@ -15,7 +15,11 @@
 # GNU General Public License for more details.                                #
 #                                                                             #
 # You should have received a copy of the GNU General Public License           #
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.       #
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.   	  #          
+#                                                                             #
+#Versione del 13-09-2026 ora 09.10                                           #
+#                                                                             #
+#                                                                             #
 #                                                                             #
 ###############################################################################
 
@@ -119,8 +123,18 @@ if ($cgiparams{'ACTION'} eq $Lang::tr{'save'}) {
 	$settings{'ENABLE_GREEN'}		= $cgiparams{'ENABLE_GREEN'};
 	$settings{'ENABLE_BLUE'}		= $cgiparams{'ENABLE_BLUE'};
 	$settings{'AUTH'}				= $cgiparams{'AUTH'};
-	$settings{'TITLE'}			= &Header::escape($cgiparams{'TITLE'});
+	$settings{'TITLE'}			= $cgiparams{'TITLE'};
 	$settings{'COLOR'}			= $cgiparams{'COLOR'};
+
+	# SSID is mandatory and is stored in the captive settings file.
+	my $ssid = $cgiparams{'ssid'} // '';
+	$ssid =~ s/^\s+|\s+$//g;
+	if ($ssid eq '') {
+		$errormessage = 'SSID is required.';
+	} else {
+		$settings{'ssid'} = $ssid;
+	}
+	
 	$settings{'SESSION_TIME'}		= $cgiparams{'SESSION_TIME'};
 
 	if (!$errormessage){
@@ -133,11 +147,21 @@ if ($cgiparams{'ACTION'} eq $Lang::tr{'save'}) {
 		&General::writehash("$settingsfile", \%settings);
 
 		# Save terms
-		$cgiparams{'TERMS'} = &Header::escape($cgiparams{'TERMS'});
+		# Save terms 1
+
+		# Save terms
 		open(FH, ">:utf8", "/var/ipfire/captive/terms.txt") or die("$!");
-		print FH $cgiparams{'TERMS'};
+		print FH $cgiparams{'TERMS1'};
 		close(FH);
 		$cgiparams{'TERMS'} = "";
+
+		# Save terms 2
+		open(FH, ">:utf8", "/var/ipfire/captive/terms2.txt") or die("$!");
+		print FH $cgiparams{'TERMS2'};
+		close(FH);
+
+		#$cgiparams{'TERMS1'} = "";
+		$cgiparams{'TERMS2'} = "";
 
 		#execute binary to reload firewall rules
 		system("/usr/local/bin/captivectrl");
@@ -223,6 +247,67 @@ if ($cgiparams{'ACTION'} eq 'delete-coupon') {
 	#write back hash
 	&General::writehasharray($coupons, \%couponhash);
 }
+
+
+if ($cgiparams{'ACTION'} eq 'add-client') {
+	my $macaddr = $cgiparams{'MACADDR'};
+	my $ipaddr = $cgiparams{'IPADDR'};
+	my $session_time = $cgiparams{'SESSION_TIME'};
+	my $key = $cgiparams{'KEY'};
+	my $note = $cgiparams{'NOTE'};
+
+	if (!$macaddr || !$ipaddr || !$key || !$note) {
+		$errormessage = "All fields must be completed.";
+	}
+	elsif ($macaddr =~ /[,\r\n]/ ||
+	       $ipaddr =~ /[,\r\n]/ ||
+	       $key =~ /[,\r\n]/ ||
+	       $note =~ /[,\r\n]/) {
+		$errormessage = "Fields cannot contain commas or line breaks.";
+	}
+	elsif (!exists $session_times{$session_time}) {
+		$errormessage = "Invalid session time.";
+	}
+	else {
+		my $max_sequence = 0;
+
+		open(my $clientfh, "+<", $clients)
+			or die("Could not open $clients: $!");
+
+		flock($clientfh, 2)
+			or die("Could not lock $clients: $!");
+
+		while (my $line = <$clientfh>) {
+			chomp($line);
+
+			my ($sequence) = split(/,/, $line, 2);
+
+			if (defined($sequence) &&
+			    $sequence =~ /^\d+$/ &&
+			    $sequence > $max_sequence) {
+				$max_sequence = $sequence;
+			}
+		}
+
+		my $new_sequence = $max_sequence + 1;
+
+		seek($clientfh, 0, 2);
+
+		print $clientfh join(",",
+			$new_sequence,
+			$macaddr,
+			$ipaddr,
+			time(),
+			$session_time,
+			$key,
+			$note
+		) . "\n";
+
+		close($clientfh);
+	}
+}
+
+
 
 if ($cgiparams{'ACTION'} eq 'delete-client') {
 	#delete voucher and connection in use
@@ -367,7 +452,15 @@ print<<END;
 			$Lang::tr{'Captive title'}
 		</td>
 		<td>
-			<input type='text' name='TITLE' value="$settings{'TITLE'}" size='40'>
+			<input type='text' name='TITLE' value="@{[ &Header::escape($settings{'TITLE'}) ]}" size='40'>
+		</td>
+	</tr>
+	<tr>
+		<td>
+			SSID
+		</td>
+		<td>
+			<input type='text' name='ssid' value="@{[ &Header::escape($settings{'ssid'}) ]}" size='40' required>
 		</td>
 	</tr>
 	<tr>
@@ -399,14 +492,32 @@ if (-e $logo) {
 END
 }
 
-my $terms = &getterms();
+my $terms1 = &getterms();
+my $terms2 = &getterms2();
 print <<END;
 	<tr>
-		<td>$Lang::tr{'Captive terms'}</td>
-		<td>
-			<textarea cols="50" rows="10" name="TERMS">$terms</textarea>
-		</td>
-	</tr>
+
+<td>Terms & Conditions 1</td>
+
+<td>
+
+<textarea cols="50" rows="10" name="TERMS1">@{[ &Header::escape($terms1) ]}</textarea>
+
+</td>
+
+</tr>
+
+<tr>
+
+<td>Terms & Conditions 2</td>
+
+<td>
+
+<textarea cols="50" rows="10" name="TERMS2">@{[ &Header::escape($terms2) ]}</textarea>
+
+</td>
+
+</tr>
 	<tr>
 		<td></td>
 		<td align='right'>
@@ -423,6 +534,9 @@ if ($settings{'AUTH'} eq 'COUPON') {
 	&coupons();
 }
 
+# Add client
+&add_client();
+
 # Show active clients
 &show_clients();
 
@@ -438,12 +552,105 @@ sub getterms() {
 	return join(/\n/, @ret);
 }
 
+sub getterms2() {
+
+my @ret;
+
+	open(FILE, "<:utf8", "/var/ipfire/captive/terms2.txt");
+	while(<FILE>) {
+		push(@ret, HTML::Entities::decode_entities($_));
+	}
+	close(FILE);
+
+	return join(/\n/, @ret);
+
+}
+
 sub gencode(){
 	#generate a random code only letters from A-Z except 'O'  and 0-9
 	my @chars = ("A".."N", "P".."Z", "0".."9");
 	my $randomstring;
 	$randomstring .= $chars[rand @chars] for 1..8;
 	return $randomstring;
+}
+
+
+sub add_client() {
+	&Header::openbox('100%', 'left', 'Add Client');
+
+	my $epoch = time();
+	my $generated_key = &gencode();
+
+	print <<END;
+		<form method='post' action='$ENV{'SCRIPT_NAME'}'>
+		<table width='100%' cellpadding='2' cellspacing='0'>
+
+			<tr>
+				<td width='25%'>$Lang::tr{'mac address'}</td>
+				<td>
+					<input type='text'
+						name='MACADDR'
+						size='40'
+						maxlength='17'
+						required>
+				</td>
+				
+			</tr>
+
+			<tr>
+				<td>$Lang::tr{'Captive ip'}</td>
+				<td>
+					<input type='text'
+						name='IPADDR'
+						size='40'
+						required>
+				</td>
+			</tr>
+
+			<input type='hidden' name='EPOCH' value='$epoch'>
+			<tr>
+				<td>$Lang::tr{'Captive vouchervalid'}</td>
+				<td>
+					<select name='SESSION_TIME'>
+END
+
+	foreach my $session_time (sort { $a <=> $b } keys %session_times) {
+		print "<option value='$session_time'>$session_times{$session_time}</option>\n";
+	}
+
+	print <<END;
+					</select>
+				</td>
+			</tr>
+
+			<tr>
+				<input type='hidden' name='KEY' value='$generated_key'>
+			</tr>
+
+			<tr>
+				<td>$Lang::tr{'remark'}</td>
+				<td>
+					<input type='text'
+						name='NOTE'
+						size='40'
+						required>
+				</td>
+			</tr>
+
+		</table>
+		<div align="right">
+		<input type='hidden'
+			name='ACTION'
+			value='add-client'>
+
+		<input type='submit'
+			value='Add client'>
+
+		</form>
+		</div>
+END
+
+	&Header::closebox();
 }
 
 sub coupons() {
@@ -719,7 +926,7 @@ sub generate_pdf() {
 	my $margin =  2/mm;
 
 	# Tux Image
-	my $tux_image = $pdf->image_png("/srv/web/ipfire/html/captive/assets/ipfire.png");
+	my $tux_image = $pdf->image_png("/srv/web/ipfire/html/captive/assets/UP.png");
 	my $logo_height = 12/mm;
 	my $logo_width  = 12/mm;
 
@@ -789,7 +996,7 @@ sub generate_pdf() {
 			$f_subheadline->translate($cx, ($y + $h - $cy) / 2.4 + $cy);
 
 			if ($settings{'TITLE'}) {
-				$f_headline->text_center(decode("utf8", $settings{'TITLE'}));
+				$f_headline->text_center(decode("utf8", &Header::escape($settings{'TITLE'})));
 				$f_subheadline->text_center(decode("utf8", $Lang::tr{'Captive WiFi coupon'}));
 			} else {
 				$f_headline->text_center(decode("utf8", $Lang::tr{'Captive WiFi coupon'}));
@@ -811,8 +1018,11 @@ sub generate_pdf() {
 
 			# Add watermark
 			$gfx->image($tux_image, $x + $w - $logo_width - $margin, $y + $margin, $logo_width, $logo_height);
-			$f_watermark->translate($x + $w - ($margin * 2) - $logo_width, $y + ($logo_height / 2));
+			$f_lifetime->translate($cx, $cy - ($y + $h - $cy) / 2);
+			$f_lifetime->text_center(decode("utf8", "Ssid " . $settings{'ssid'} . " "));
+			$f_watermark->translate($x + $w - ($margin * 2) - 30, $y + 25);
 			$f_watermark->text_right("Powered by IPFire");
+			$f_watermark->translate($x + $w - ($margin * 2) - $logo_width, $y + ($logo_height / 2));
 
 			$i++;
 		}
