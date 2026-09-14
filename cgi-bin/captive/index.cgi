@@ -17,11 +17,14 @@
 # You should have received a copy of the GNU General Public License           #
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.       #
 #                                                                             #
+#    Version 1.0.2                                                                         #
+#                                                                             #
 ###############################################################################
 
 use strict;
 use CGI ':standard';
 use URI::Escape;
+use Encode;
 use HTML::Entities();
 use HTML::Template;
 
@@ -30,6 +33,7 @@ use HTML::Template;
 #use CGI::Carp 'fatalsToBrowser';
 
 require '/var/ipfire/general-functions.pl';
+#require "${General::swroot}/header.pl";
 require "${General::swroot}/lang.pl";
 
 # Load the most appropriate language from the browser configuration
@@ -167,11 +171,14 @@ if ($settings{'AUTH'} eq "COUPON") {
 	$tmpl->param(L_HEADING => $Lang::tr{'Captive terms'});
 }
 
-$tmpl->param(TITLE => $settings{'TITLE'});
+#$tmpl->param(TITLE => &Header::escape($settings{'TITLE'}));
+$tmpl->param(TITLE => escape($settings{'TITLE'}));
 $tmpl->param(COLOR => $settings{'COLOR'});
 $tmpl->param(ERROR => $errormessage);
 
-$tmpl->param(TERMS => &getterms());
+$tmpl->param(TERMS => &getterms("/var/ipfire/captive/terms.txt"));
+$tmpl->param(TERMS2 => &getterms("/var/ipfire/captive/terms2.txt"));
+
 
 # Some translated strings
 $tmpl->param(L_ACTIVATE        => $Lang::tr{'Captive ACTIVATE'});
@@ -219,20 +226,41 @@ sub getcgihash {
 	return;
 }
 
-sub getterms() {
+sub getterms($) {
+	my ($filename) = @_;
+
 	my @terms = ();
 
-	open(my $handle, "<:utf8", "/var/ipfire/captive/terms.txt");
+	open(my $handle, "<:utf8", $filename) or return "";
 	while(<$handle>) {
-		$_ = HTML::Entities::decode_entities($_);
 		push(@terms, $_);
 	}
 	close($handle);
 
 	my $terms = join("\n", @terms);
 
+	# Escape the string
+	$terms = escape($terms);
 	# Format paragraphs
-	$terms =~ s/\n\n/<\/p>\n<p>/g;
+	#$terms =~ s/\n\n/<\/p>\n<p>/g;
 
 	return $terms;
+}
+
+
+
+sub escape($) {
+	my $s = shift;
+
+	# Decode from UTF-8 as HTML::Entitites::encode_entities
+	# does not support it.
+	$s = &Encode::decode("UTF-8", $s);
+
+	# Escape any HTML entities
+	$s = &HTML::Entities::encode_entities($s);
+
+	# Encode back to UTF-8
+	$s = &Encode::encode("UTF-8", $s);
+
+	return $s;
 }
